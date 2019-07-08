@@ -68,22 +68,6 @@ def camera2dict(msg, write_results, camera_dict):
     camera_dict["filename"].append(write_results['filename'])
 
 
-def steering2dict(msg, steering_dict):
-    steering_dict["timestamp"].append(msg.header.stamp.to_nsec())
-    steering_dict["angle"].append(msg.steering_wheel_angle)
-    steering_dict["torque"].append(msg.steering_wheel_torque)
-    steering_dict["speed"].append(msg.speed)
-
-
-def gps2dict(msg, gps_dict):
-    gps_dict["timestamp"].append(msg.header.stamp.to_nsec())
-    gps_dict["status"].append(msg.status.status)
-    gps_dict["service"].append(msg.status.service)
-    gps_dict["lat"].append(msg.latitude)
-    gps_dict["long"].append(msg.longitude)
-    gps_dict["alt"].append(msg.altitude)
-
-
 def imu2dict(msg, imu_dict):
     imu_dict["timestamp"].append(msg.header.stamp.to_nsec())
     imu_dict["ax"].append(msg.linear_acceleration.x)
@@ -91,31 +75,19 @@ def imu2dict(msg, imu_dict):
     imu_dict["az"].append(msg.linear_acceleration.z)
 
 
-def gear2dict(msg, gear_dict):
-    gear_dict["timestamp"].append(msg.header.stamp.to_nsec())
-    gear_dict["gear_state"].append(msg.state.gear)
-    gear_dict["gear_cmd"].append(msg.cmd.gear)
+def low_level_ackermann2dict(msg, low_level_ackermann_dict):
+    low_level_ackermann_dict["timestamp"].append(msg.header.stamp.to_nsec())
+    low_level_ackermann_dict["steering_angle"].append(msg.drive.steering_angle)
+    low_level_ackermann_dict['steering_angle_velocity'].append(msg.drive.steering_angle_velocity)
+    low_level_ackermann_dict["speed"].append(msg.drive.speed)
+    low_level_ackermann_dict["acceleration"].append(msg.drive.acceleration)
+    low_level_ackermann_dict["jerk"].append(msg.drive.jerk)
 
 
-def throttle2dict(msg, throt_dict):
-    throt_dict["timestamp"].append(msg.header.stamp.to_nsec())
-    throt_dict["throttle_input"].append(msg.pedal_input)
-
-
-def brake2dict(msg, brake_dict):
-    brake_dict["timestamp"].append(msg.header.stamp.to_nsec())
-    brake_dict["brake_input"].append(msg.pedal_input)
-
-
-def camera_select(topic, select_from):
-    if topic.startswith('/l'):
-        return select_from[0]
-    elif topic.startswith('/c'):
-        return select_from[1]
-    elif topic.startswith('/r'):
-        return select_from[2]
-    else:
-        assert False, "Unexpected topic"
+def odom2dict(msg, odom_dict):
+    odom_dict["timestamp"].append(msg.header.stamp.to_nsec())
+    odom_dict["vx"].append(msg.twist.twist.linear.x)
+    odom_dict['vy'].append(msg.twist.twist.linear.y)
 
 
 def main():
@@ -126,7 +98,7 @@ def main():
         help='Input folder where bagfiles are located')
     parser.add_argument('-f', '--img_format', type=str, nargs='?', default='jpg',
         help='Image encode format, png or jpg')
-    parser.add_argument('-m', dest='msg_only', action='store_true', help='Messages only, no immages')
+    parser.add_argument('-m', dest='msg_only', action='store_true', help='Messages only, no images')
     parser.add_argument('-d', dest='debug', action='store_true', help='Debug print enable')
     parser.set_defaults(msg_only=False)
     parser.set_defaults(debug=False)
@@ -143,7 +115,7 @@ def main():
     include_images = False if msg_only else True
     include_others = True
 
-    filter_topics = [STEERING_TOPIC, GPS_FIX_TOPIC, GPS_FIX_NEW_TOPIC]
+    filter_topics = [LOW_LEVEL_ACKERMANN_TOPIC, ODOMETRY_TOPIC]
     if include_images:
         filter_topics += CAMERA_TOPICS
     if include_others:
@@ -155,31 +127,20 @@ def main():
         sys.stdout.flush()
 
         dataset_outdir = os.path.join(base_outdir, "%s" % bs.name)
-        left_outdir = get_outdir(dataset_outdir, "left")
         center_outdir = get_outdir(dataset_outdir, "center")
-        right_outdir = get_outdir(dataset_outdir, "right")
 
-        camera_cols = ["timestamp", "width", "height", "frame_id", "filename"]
+        camera_cols = ["timestamp", "width", "height", "frame_id", "filename"] 
         camera_dict = defaultdict(list)
 
-        steering_cols = ["timestamp", "angle", "torque", "speed"]
-        steering_dict = defaultdict(list)
+        low_level_ackermann_cols = ["timestamp", "steering_angle", "steering_angle_velocity", "speed", "acceleration", "jerk"]
+        low_level_ackermann_dict = defaultdict(list)
 
-        gps_cols = ["timestamp", "status", "service", "lat", "long", "alt"]
-        gps_dict = defaultdict(list)
+        odom_cols = ["timestamp", "vx", "vy"]
+        odom_dict = defaultdict(list)
 
         if include_others:
             imu_cols = ["timestamp", "ax", "ay", "az"]
             imu_dict = defaultdict(list)
-
-            throttle_cols = ["timestamp", "throttle_input"]
-            throttle_dict = defaultdict(list)
-
-            brake_cols = ["timestamp", "brake_input"]
-            brake_dict = defaultdict(list)
-
-            gear_cols = ["timestamp", "gear_state", "gear_cmd"]
-            gear_dict = defaultdict(list)
 
         bs.write_infos(dataset_outdir)
         readers = bs.get_readers()
@@ -188,7 +149,7 @@ def main():
         def _process_msg(topic, msg, stats):
             timestamp = msg.header.stamp.to_nsec()
             if topic in CAMERA_TOPICS:
-                outdir = camera_select(topic, (left_outdir, center_outdir, right_outdir))
+                outdir = center_outdir
                 if debug_print:
                     print("%s_camera %d" % (topic[1], timestamp))
 
@@ -198,31 +159,25 @@ def main():
                 stats['img_count'] += 1
                 stats['msg_count'] += 1
 
-            elif topic == STEERING_TOPIC:
+            elif topic == LOW_LEVEL_ACKERMANN_TOPIC:
                 if debug_print:
-                    print("steering %d %f" % (timestamp, msg.steering_wheel_angle))
+                    print("low level ackermann %d %f" % (timestamp, msg.drive.steering_angle))
 
-                steering2dict(msg, steering_dict)
+                low_level_ackermann2dict(msg, low_level_ackermann_dict)
                 stats['msg_count'] += 1
 
-            elif topic == GPS_FIX_TOPIC or topic == GPS_FIX_NEW_TOPIC:
+            elif topic == ODOMETRY_TOPIC:
                 if debug_print:
-                    print("gps      %d %d, %d" % (timestamp, msg.latitude, msg.longitude))
+                    print("odometry %d %f %f" % (timestamp, msg.twist.twist.linear.x, msg.twist.twist.linear.y))
 
-                gps2dict(msg, gps_dict)
+                odom2dict(msg, odom_dict)
                 stats['msg_count'] += 1
+
+
+
             else:
                 if include_others:
-                    if topic == GEAR_TOPIC:
-                        gear2dict(msg, gear_dict)
-                        stats['msg_count'] += 1
-                    elif topic == THROTTLE_TOPIC:
-                        throttle2dict(msg, throttle_dict)
-                        stats['msg_count'] += 1
-                    elif topic == BRAKE_TOPIC:
-                        brake2dict(msg, brake_dict)
-                        stats['msg_count'] += 1
-                    elif topic == IMU_TOPIC:
+                    if topic == IMU_TOPIC:
                         imu2dict(msg, imu_dict)
                         stats['msg_count'] += 1
 
@@ -245,51 +200,38 @@ def main():
             camera_df = pd.DataFrame(data=camera_dict, columns=camera_cols)
             camera_df.to_csv(camera_csv_path, index=False)
 
-        steering_csv_path = os.path.join(dataset_outdir, 'steering.csv')
-        steering_df = pd.DataFrame(data=steering_dict, columns=steering_cols)
-        steering_df.to_csv(steering_csv_path, index=False)
+        low_level_ackermann_csv_path = os.path.join(dataset_outdir, 'low_level_ackermann.csv')
+        low_level_ackermann_df = pd.DataFrame(data=low_level_ackermann_dict, columns=low_level_ackermann_cols)
+        low_level_ackermann_df.to_csv(low_level_ackermann_csv_path, index=False)
 
-        gps_csv_path = os.path.join(dataset_outdir, 'gps.csv')
-        gps_df = pd.DataFrame(data=gps_dict, columns=gps_cols)
-        gps_df.to_csv(gps_csv_path, index=False)
+        odom_csv_path = os.path.join(dataset_outdir, 'odom.csv')
+        odom_df = pd.DataFrame(data=odom_dict, columns=odom_cols)
+        odom_df.to_csv(odom_csv_path, index=False)
 
         if include_others:
-            gear_csv_path = os.path.join(dataset_outdir, 'gear.csv')
-            gear_df = pd.DataFrame(data=gear_dict, columns=gear_cols)
-            gear_df.to_csv(gear_csv_path, index=False)
-
-            throttle_csv_path = os.path.join(dataset_outdir, 'throttle.csv')
-            throttle_df = pd.DataFrame(data=throttle_dict, columns=throttle_cols)
-            throttle_df.to_csv(throttle_csv_path, index=False)
-
-            brake_csv_path = os.path.join(dataset_outdir, 'brake.csv')
-            brake_df = pd.DataFrame(data=brake_dict, columns=brake_cols)
-            brake_df.to_csv(brake_csv_path, index=False)
-
             imu_csv_path = os.path.join(dataset_outdir, 'imu.csv')
             imu_df = pd.DataFrame(data=imu_dict, columns=imu_cols)
             imu_df.to_csv(imu_csv_path, index=False)
 
         gen_interpolated = True
         if include_images and gen_interpolated:
-            # A little pandas magic to interpolate steering/gps samples to camera frames
+            # A little pandas magic to interpolate steering samples to camera frames
             camera_df['timestamp'] = pd.to_datetime(camera_df['timestamp'])
             camera_df.set_index(['timestamp'], inplace=True)
             camera_df.index.rename('index', inplace=True)
-            steering_df['timestamp'] = pd.to_datetime(steering_df['timestamp'])
-            steering_df.set_index(['timestamp'], inplace=True)
-            steering_df.index.rename('index', inplace=True)
-            gps_df['timestamp'] = pd.to_datetime(gps_df['timestamp'])
-            gps_df.set_index(['timestamp'], inplace=True)
-            gps_df.index.rename('index', inplace=True)
+            low_level_ackermann_df['timestamp'] = pd.to_datetime(low_level_ackermann_df['timestamp'])
+            low_level_ackermann_df.set_index(['timestamp'], inplace=True)
+            low_level_ackermann_df.index.rename('index', inplace=True)
+            odom_df['timestamp'] = pd.to_datetime(odom_df['timestamp'])
+            odom_df.set_index(['timestamp'], inplace=True)
+            odom_df.index.rename('index', inplace=True)
 
             merged = functools.reduce(lambda left, right: pd.merge(
-                left, right, how='outer', left_index=True, right_index=True), [camera_df, steering_df, gps_df])
+                left, right, how='outer', left_index=True, right_index=True), [camera_df, low_level_ackermann_df, odom_df])
             merged.interpolate(method='time', inplace=True)
 
             filtered_cols = ['timestamp', 'width', 'height', 'frame_id', 'filename',
-                             'angle', 'torque', 'speed',
-                             'lat', 'long', 'alt']
+                             'steering_angle', 'speed', 'vx', 'vy']
             filtered = merged.loc[camera_df.index]  # back to only camera rows
             filtered.fillna(0.0, inplace=True)
             filtered['timestamp'] = filtered.index.astype('int')  # add back original timestamp integer col
@@ -299,6 +241,7 @@ def main():
 
             interpolated_csv_path = os.path.join(dataset_outdir, 'interpolated.csv')
             filtered.to_csv(interpolated_csv_path, header=True)
+
 
 if __name__ == '__main__':
     main()
